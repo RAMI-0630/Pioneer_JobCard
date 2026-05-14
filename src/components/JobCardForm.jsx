@@ -173,15 +173,22 @@ export default function JobCardForm({
   // ── Validation ─────────────────────────────────────────────────────────────
   function validate() {
     const e = {}
-    if (!form.job_card_no.trim()) e.job_card_no = 'Job card number is required.'
-    if (!form.job_date)           e.job_date    = 'Date is required.'
-    if (!form.full_name.trim())   e.full_name   = 'Customer name is required.'
-    if (!form.mobile.trim())      e.mobile      = 'Mobile number is required.'
-    if (!form.plate_no.trim())    e.plate_no    = 'Plate number is required.'
-    if (form.year && (isNaN(form.year) || form.year < 1900 || form.year > new Date().getFullYear() + 1))
-      e.year = 'Enter a valid year.'
-    if (form.current_km_reading && (isNaN(form.current_km_reading) || Number(form.current_km_reading) < 0))
-      e.current_km_reading = 'Must be a non-negative number.'
+    if (!form.job_card_no.trim())       e.job_card_no        = 'Job card number is required.'
+    if (!form.job_date)                 e.job_date           = 'Date is required.'
+    if (!form.full_name.trim())         e.full_name          = 'Customer name is required.'
+    if (!form.mobile.trim())            e.mobile             = 'Mobile number is required.'
+    if (!form.plate_no.trim())          e.plate_no           = 'Plate number is required.'
+    if (!form.make.trim())              e.make               = 'Make is required.'
+    if (!form.model.trim())             e.model              = 'Model is required.'
+    if (!form.year)                     e.year               = 'Year is required.'
+    else if (isNaN(form.year) || form.year < 1900 || form.year > new Date().getFullYear() + 1)
+                                        e.year               = 'Enter a valid year.'
+    if (!form.current_km_reading)       e.current_km_reading = 'KM reading is required.'
+    else if (isNaN(form.current_km_reading) || Number(form.current_km_reading) < 0)
+                                        e.current_km_reading = 'Must be a non-negative number.'
+    if (!form.tyre_size_front.trim())   e.tyre_size_front    = 'Front tyre size is required.'
+    if (!form.tyre_size_rear.trim())    e.tyre_size_rear     = 'Rear tyre size is required.'
+    if (!form.technician_name.trim())   e.technician_name    = 'Technician name is required.'
     return e
   }
 
@@ -287,8 +294,18 @@ export default function JobCardForm({
           <div className="form-row-2">
             <DateInput id="job_date" label="Date" required value={form.job_date}
               onChange={(e) => set('job_date', e.target.value)} error={errors.job_date} />
-            <TimeInput id="time_in" label="Time In" value={form.time_in}
-              onChange={(e) => set('time_in', e.target.value)} />
+            <div className="field">
+              <label htmlFor="time_in" className="field-label">
+                Time In <span className="field-auto-badge">auto</span>
+              </label>
+              <input
+                id="time_in"
+                className="field-input field-input--readonly"
+                value={form.time_in}
+                readOnly
+                aria-readonly="true"
+              />
+            </div>
           </div>
 
           <div className="field">
@@ -321,23 +338,23 @@ export default function JobCardForm({
             onChange={(e) => set('plate_no', e.target.value.toUpperCase())}
             onBlur={handlePlateBlur} error={errors.plate_no} />
           <div className="form-row-2">
-            <TextInput id="make" label="Make" value={form.make} onChange={(e) => set('make', e.target.value)} />
-            <TextInput id="model" label="Model" value={form.model} onChange={(e) => set('model', e.target.value)} />
+            <TextInput id="make" label="Make" required value={form.make} onChange={(e) => set('make', e.target.value)} error={errors.make} />
+            <TextInput id="model" label="Model" required value={form.model} onChange={(e) => set('model', e.target.value)} error={errors.model} />
           </div>
           <div className="form-row-2">
-            <NumberInput id="year" label="Year" value={form.year}
+            <NumberInput id="year" label="Year" required value={form.year}
               onChange={(e) => set('year', e.target.value)} error={errors.year}
               min="1900" max={new Date().getFullYear() + 1} />
-            <NumberInput id="current_km_reading" label="KM Reading" value={form.current_km_reading}
+            <NumberInput id="current_km_reading" label="KM Reading" required value={form.current_km_reading}
               onChange={(e) => set('current_km_reading', e.target.value)} error={errors.current_km_reading} min="0" />
           </div>
           <div className="form-row-2">
-            <TextInput id="tyre_size_front" label="Tyre Front" value={form.tyre_size_front}
-              onChange={(e) => set('tyre_size_front', e.target.value)} />
-            <TextInput id="tyre_size_rear" label="Tyre Rear" value={form.tyre_size_rear}
-              onChange={(e) => set('tyre_size_rear', e.target.value)} />
+            <TextInput id="tyre_size_front" label="Front Tyre Size" required value={form.tyre_size_front}
+              onChange={(e) => set('tyre_size_front', e.target.value)} error={errors.tyre_size_front} />
+            <TextInput id="tyre_size_rear" label="Rear Tyre Size" required value={form.tyre_size_rear}
+              onChange={(e) => set('tyre_size_rear', e.target.value)} error={errors.tyre_size_rear} />
           </div>
-          <TextInput id="spare_size" label="Spare Size" value={form.spare_size}
+          <TextInput id="spare_size" label="Spare Tyre Size" value={form.spare_size}
             onChange={(e) => set('spare_size', e.target.value)} />
         </div>
       </section>
@@ -405,8 +422,8 @@ export default function JobCardForm({
       <section className="form-section">
         <h2 className="form-section__title">Completion</h2>
         <div className="form-stack">
-          <TextInput id="technician_name" label="Technician Name" value={form.technician_name}
-            onChange={(e) => set('technician_name', e.target.value)} />
+          <TextInput id="technician_name" label="Technician Name" required value={form.technician_name}
+            onChange={(e) => set('technician_name', e.target.value)} error={errors.technician_name} />
           <TimeInput id="time_out" label="Time Out" value={form.time_out}
             onChange={(e) => set('time_out', e.target.value)} />
           <div className="field">
