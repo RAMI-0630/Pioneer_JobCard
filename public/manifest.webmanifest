@@ -1,0 +1,17 @@
+{
+  "name": "Pioneer Job Cards",
+  "short_name": "Pioneer",
+  "description": "Workshop job card management for Pioneer Tyre & Auto",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a56db",
+  "icons": [
+    {
+      "src": "/logo_pioneer.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
