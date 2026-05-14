@@ -79,11 +79,29 @@ export default function JobCardForm({
   const tyreRepairRowsRef = useRef(initialTyreRepair)
   const mountingDetailRef = useRef(initialMounting)
 
-  // Load service catalog
+  // Load service catalog — use localStorage cache as offline fallback
   useEffect(() => {
+    const CACHE_KEY = 'pioneer_service_catalog'
+
+    // Immediately seed from cache so the form is usable even before the
+    // network resolves (or if it never does because we're offline)
+    const cached = localStorage.getItem(CACHE_KEY)
+    if (cached) {
+      try {
+        setServiceCatalog(JSON.parse(cached))
+        setLoadingCatalog(false)
+      } catch (_) {}
+    }
+
     fetchServiceCatalog()
-      .then(setServiceCatalog)
-      .catch((e) => setServerError(e.message))
+      .then((data) => {
+        setServiceCatalog(data)
+        localStorage.setItem(CACHE_KEY, JSON.stringify(data))
+      })
+      .catch((e) => {
+        // Only show an error if we have nothing cached to fall back on
+        if (!cached) setServerError('Could not load services. Please check your connection.')
+      })
       .finally(() => setLoadingCatalog(false))
   }, [])
 

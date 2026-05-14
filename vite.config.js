@@ -11,7 +11,11 @@ export default defineConfig({
       strategies: 'generateSW',
       manifest: false, // manifest is provided via public/manifest.webmanifest
       workbox: {
-        // Cache app-shell assets with CacheFirst
+        // Precache all built app-shell assets so they're available offline immediately
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // Navigate fallback ensures the SPA shell is served for all routes offline
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             // Supabase GET requests — NetworkFirst with 3-second timeout
@@ -27,26 +31,7 @@ export default defineConfig({
               },
             },
           },
-          {
-            // App-shell assets: HTML, JS, CSS, fonts, images — CacheFirst
-            urlPattern: ({ request }) =>
-              request.destination === 'document' ||
-              request.destination === 'script' ||
-              request.destination === 'style' ||
-              request.destination === 'font' ||
-              request.destination === 'image',
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'pwa-app-shell',
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
         ],
-        // Supabase POST/PATCH/DELETE must NOT be cached — pass through only
-        // (Workbox only caches GET by default; non-GET requests are never cached
-        //  unless explicitly configured, so no extra config needed here)
       },
     }),
   ],

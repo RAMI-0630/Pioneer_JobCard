@@ -24,8 +24,13 @@ export default function CreateJobCardPage() {
   const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
+    if (!isOnline) {
+      // Offline: generate a placeholder job card number locally so the form renders
+      setNextNo('---')
+      return
+    }
     fetchNextJobCardNo().then(setNextNo).catch((e) => setLoadError(e.message))
-  }, [])
+  }, [isOnline])
 
   async function handleSubmit(form, selectedServiceIds, balancingRows, tyreRepairRows, serviceCatalog, mountingDetail) {
     // Offline path — Req 3.1, 3.2, 3.3, 3.4
