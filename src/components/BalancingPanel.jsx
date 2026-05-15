@@ -22,38 +22,60 @@ export default function BalancingPanel({ initialRows = [], onChange, errors = {}
   const [rows, setRows] = useState(
     initialRows.length ? initialRows.map((r) => ({ tyre_position: r.tyre_position, grams_used: String(r.grams_used) })) : [emptyRow()]
   )
-  const [pendingCount, setPendingCount] = useState(null) // count waiting for confirm
+  const [countInput, setCountInput] = useState(String(initialRows.length || 1))
+  const [pendingCount, setPendingCount] = useState(null)
   const [showConfirm, setShowConfirm] = useState(false)
 
-  // Notify parent whenever rows change
   useEffect(() => { onChange(rows) }, [rows])
 
-  // Sync if initialRows arrive late (edit mode)
   useEffect(() => {
     if (initialRows.length) {
-      setRows(initialRows.map((r) => ({ tyre_position: r.tyre_position, grams_used: String(r.grams_used) })))
+      const mapped = initialRows.map((r) => ({ tyre_position: r.tyre_position, grams_used: String(r.grams_used) }))
+      setRows(mapped)
+      setCountInput(String(initialRows.length))
     }
   }, [initialRows.length])
 
-  function handleCountChange(e) {
-    const val = parseInt(e.target.value, 10)
-    if (isNaN(val) || val < 1 || val > 5) return
-    if (val < rows.length) {
-      // Warn before removing rows
-      setPendingCount(val)
+  function applyCount(val) {
+    const n = parseInt(val, 10)
+    if (isNaN(n) || n < 1 || n > 5) {
+      setCountInput(String(rows.length))
+      return
+    }
+    if (n < rows.length) {
+      setPendingCount(n)
       setShowConfirm(true)
     } else {
-      // Add rows
       setRows((prev) => {
         const next = [...prev]
-        while (next.length < val) next.push(emptyRow())
+        while (next.length < n) next.push(emptyRow())
         return next
       })
+      setCountInput(String(n))
     }
+  }
+
+  function handleCountChange(e) {
+    setCountInput(e.target.value)
+  }
+
+  function handleCountBlur(e) {
+    applyCount(e.target.value)
+  }
+
+  function handleCountKeyDown(e) {
+    if (e.key === 'Enter') applyCount(e.target.value)
   }
 
   function confirmReduce() {
     setRows((prev) => prev.slice(0, pendingCount))
+    setCountInput(String(pendingCount))
+    setShowConfirm(false)
+    setPendingCount(null)
+  }
+
+  function cancelReduce() {
+    setCountInput(String(rows.length))
     setShowConfirm(false)
     setPendingCount(null)
   }
@@ -76,10 +98,12 @@ export default function BalancingPanel({ initialRows = [], onChange, errors = {}
           id="bal-count"
           type="number"
           className={`field-input field-input--narrow ${errors.tyreCount ? 'field-input--error' : ''}`}
-          value={rows.length}
+          value={countInput}
           min={1}
           max={5}
           onChange={handleCountChange}
+          onBlur={handleCountBlur}
+          onKeyDown={handleCountKeyDown}
         />
         {errors.tyreCount && <span className="field-error" role="alert">{errors.tyreCount}</span>}
       </div>
@@ -127,7 +151,7 @@ export default function BalancingPanel({ initialRows = [], onChange, errors = {}
         message={`This will remove ${rows.length - (pendingCount ?? 0)} row(s). Any data in those rows will be lost.`}
         confirmLabel="Yes, Remove"
         onConfirm={confirmReduce}
-        onCancel={() => { setShowConfirm(false); setPendingCount(null) }}
+        onCancel={cancelReduce}
       />
     </div>
   )

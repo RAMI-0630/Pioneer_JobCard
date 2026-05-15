@@ -21,6 +21,7 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
       ? initialRows.map((r) => ({ tyre_position: r.tyre_position, patch_type: r.patch_type, patch_count: String(r.patch_count) }))
       : [emptyRow()]
   )
+  const [countInput, setCountInput] = useState(String(initialRows.length || 1))
   const [pendingCount, setPendingCount] = useState(null)
   const [showConfirm, setShowConfirm] = useState(false)
 
@@ -28,27 +29,53 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
 
   useEffect(() => {
     if (initialRows.length) {
-      setRows(initialRows.map((r) => ({ tyre_position: r.tyre_position, patch_type: r.patch_type, patch_count: String(r.patch_count) })))
+      const mapped = initialRows.map((r) => ({ tyre_position: r.tyre_position, patch_type: r.patch_type, patch_count: String(r.patch_count) }))
+      setRows(mapped)
+      setCountInput(String(initialRows.length))
     }
   }, [initialRows.length])
 
-  function handleCountChange(e) {
-    const val = parseInt(e.target.value, 10)
-    if (isNaN(val) || val < 1 || val > 5) return
-    if (val < rows.length) {
-      setPendingCount(val)
+  function applyCount(val) {
+    const n = parseInt(val, 10)
+    if (isNaN(n) || n < 1 || n > 5) {
+      // Reset input to current row count if invalid
+      setCountInput(String(rows.length))
+      return
+    }
+    if (n < rows.length) {
+      setPendingCount(n)
       setShowConfirm(true)
     } else {
       setRows((prev) => {
         const next = [...prev]
-        while (next.length < val) next.push(emptyRow())
+        while (next.length < n) next.push(emptyRow())
         return next
       })
+      setCountInput(String(n))
     }
+  }
+
+  function handleCountChange(e) {
+    setCountInput(e.target.value)
+  }
+
+  function handleCountBlur(e) {
+    applyCount(e.target.value)
+  }
+
+  function handleCountKeyDown(e) {
+    if (e.key === 'Enter') applyCount(e.target.value)
   }
 
   function confirmReduce() {
     setRows((prev) => prev.slice(0, pendingCount))
+    setCountInput(String(pendingCount))
+    setShowConfirm(false)
+    setPendingCount(null)
+  }
+
+  function cancelReduce() {
+    setCountInput(String(rows.length))
     setShowConfirm(false)
     setPendingCount(null)
   }
@@ -71,10 +98,12 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
           id="rep-count"
           type="number"
           className={`field-input field-input--narrow ${errors.tyreCount ? 'field-input--error' : ''}`}
-          value={rows.length}
+          value={countInput}
           min={1}
           max={5}
           onChange={handleCountChange}
+          onBlur={handleCountBlur}
+          onKeyDown={handleCountKeyDown}
         />
         {errors.tyreCount && <span className="field-error" role="alert">{errors.tyreCount}</span>}
       </div>
@@ -134,7 +163,7 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
         message={`This will remove ${rows.length - (pendingCount ?? 0)} row(s). Any data in those rows will be lost.`}
         confirmLabel="Yes, Remove"
         onConfirm={confirmReduce}
-        onCancel={() => { setShowConfirm(false); setPendingCount(null) }}
+        onCancel={cancelReduce}
       />
     </div>
   )

@@ -17,6 +17,7 @@ import {
   createVehicle,
   createJobCard,
   fetchJobCardById,
+  fetchNextJobCardNo,
   updateCustomer,
   updateVehicle,
   updateJobCard,
@@ -99,9 +100,14 @@ export async function replayCreate(payload) {
     })
   }
 
-  // 3. Create job card (no created_by needed for replay)
+  // 3. Assign a real job card number at sync time.
+  // Offline job cards are saved with a placeholder ('---') so we always
+  // fetch the next available number here to avoid unique constraint conflicts.
+  const job_card_no = await fetchNextJobCardNo()
+
+  // 4. Create job card
   const jobCard = await createJobCard({
-    job_card_no: form.job_card_no,
+    job_card_no,
     customer_id: customer.id,
     vehicle_id: vehicle.id,
     job_date: form.job_date,
@@ -112,7 +118,7 @@ export async function replayCreate(payload) {
     notes: form.notes || null,
   })
 
-  // 4. Build and replace service lines
+  // 5. Build and replace service lines
   const serviceLines = buildServiceLines(
     selectedServiceIds,
     balancingRows,
