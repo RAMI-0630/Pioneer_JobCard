@@ -91,6 +91,8 @@ export default function EditJobCardPage() {
     })
 
     const serviceLines = buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog)
+    console.log('[EditJobCard] selectedServiceIds at submit:', selectedServiceIds)
+    console.log('[EditJobCard] built serviceLines:', serviceLines.map(s => s.service_catalog_id))
     await replaceServiceLines(id, serviceLines)
 
     navigate(`/job-cards/${id}`)

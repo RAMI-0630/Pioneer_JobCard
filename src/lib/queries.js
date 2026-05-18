@@ -131,16 +131,41 @@ export async function createJobCard(fields) {
 //   3. Insert detail rows for Balancing, Tyre Repair, and Mounting.
 
 export async function replaceServiceLines(job_card_id, serviceLines) {
-  // 1. Delete — cascades to balancing_details, tyre_repair_details, mounting_details
-  const { error: delErr } = await supabase
+  console.log('[replaceServiceLines] called for job_card_id:', job_card_id)
+  console.log('[replaceServiceLines] serviceLines to insert:', serviceLines.map(s => s.service_catalog_id))
+
+  // 1. Fetch existing line IDs so we can explicitly delete detail rows first
+  const { data: existingLines, error: fetchErr } = await supabase
+    .from('job_card_service_lines')
+    .select('id')
+    .eq('job_card_id', job_card_id)
+  if (fetchErr) throw fetchErr
+
+  console.log('[replaceServiceLines] existing lines before delete:', existingLines?.length, existingLines?.map(l => l.id))
+
+  if (existingLines?.length) {
+    const lineIds = existingLines.map((l) => l.id)
+
+    const [balRes, tyrRes, mntRes] = await Promise.all([
+      supabase.from('balancing_details').delete().in('service_line_id', lineIds),
+      supabase.from('tyre_repair_details').delete().in('service_line_id', lineIds),
+      supabase.from('mounting_details').delete().in('service_line_id', lineIds),
+    ])
+    console.log('[replaceServiceLines] detail delete errors:', balRes.error, tyrRes.error, mntRes.error)
+  }
+
+  // 2. Delete service lines
+  const { error: delErr, data: delData } = await supabase
     .from('job_card_service_lines')
     .delete()
     .eq('job_card_id', job_card_id)
+    .select('id')
   if (delErr) throw delErr
+  console.log('[replaceServiceLines] deleted service lines:', delData?.length, delData?.map(l => l.id))
 
   if (!serviceLines.length) return
 
-  // 2. Insert service lines with explicit sort_order
+  // 3. Insert service lines with explicit sort_order
   const lineInserts = serviceLines.map((sl, i) => ({
     job_card_id,
     service_catalog_id: sl.service_catalog_id,
@@ -155,33 +180,35 @@ export async function replaceServiceLines(job_card_id, serviceLines) {
   if (lineErr) throw lineErr
 
   // 3. Build detail inserts keyed by the newly created line id
+  // Match by index — insertedLines preserves the same order as lineInserts
   const balancingInserts   = []
   const tyreRepairInserts  = []
   const mountingInserts    = []
 
-  for (const line of insertedLines) {
-    const sl = serviceLines.find((s) => s.service_catalog_id === line.service_catalog_id)
+  for (let i = 0; i < insertedLines.length; i++) {
+    const line = insertedLines[i]
+    const sl   = serviceLines[i]
     if (!sl) continue
 
     if (sl.balancingRows?.length) {
-      sl.balancingRows.forEach((r, i) => {
+      sl.balancingRows.forEach((r, j) => {
         balancingInserts.push({
           service_line_id: line.id,
           tyre_position:   r.tyre_position,
           grams_used:      Number(r.grams_used),
-          sort_order:      i,
+          sort_order:      j,
         })
       })
     }
 
     if (sl.tyreRepairRows?.length) {
-      sl.tyreRepairRows.forEach((r, i) => {
+      sl.tyreRepairRows.forEach((r, j) => {
         tyreRepairInserts.push({
           service_line_id: line.id,
           tyre_position:   r.tyre_position,
           patch_type:      r.patch_type,
           patch_count:     Number(r.patch_count),
-          sort_order:      i,
+          sort_order:      j,
         })
       })
     }

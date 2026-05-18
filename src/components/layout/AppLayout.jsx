@@ -36,7 +36,7 @@ export default function AppLayout() {
 
         <div className="topbar__user">
           <span className="topbar__email">{user?.email}</span>
-          <button className="btn btn--ghost-white btn--sm" onClick={handleSignOut}>
+          <button className="btn btn--ghost-white btn--sm" onClick={handleSignOut} disabled={true}> 
             Sign Out
           </button>
         </div>
