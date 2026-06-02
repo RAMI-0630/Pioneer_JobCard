@@ -8,12 +8,15 @@ import Spinner from './ui/Spinner'
 import BalancingPanel from './BalancingPanel'
 import TyreRepairPanel from './TyreRepairPanel'
 import MountingPanel from './MountingPanel'
-import { fetchServiceCatalog, findCustomerByMobile, findVehicleByPlate } from '../lib/queries'
+import { fetchServiceCatalog, fetchPriceRules, findCustomerByMobile, findVehicleByPlate } from '../lib/queries'
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'CLOSED']
 
 // Services that reveal structured detail panels (matched by name, case-insensitive)
 const DETAIL_SERVICES = ['balancing', 'tyre repair', 'mounting']
+
+// Services that show a simple quantity input when selected (matched by name, case-insensitive)
+const QTY_SERVICES = ['tyre valve']
 
 /** Returns today's date as YYYY-MM-DD in local time */
 function localDateString() {
@@ -51,6 +54,7 @@ export default function JobCardForm({
   nextJobCardNo,
   initialValues = {},
   initialServices = [],
+  initialServiceQuantities = {}, // { [serviceId]: number } for qty services in edit mode
   initialBalancing = [],
   initialTyreRepair = [],
   initialMounting = {},
@@ -66,7 +70,14 @@ export default function JobCardForm({
 
   const [form, setForm] = useState({ ...EMPTY_FORM, ...seedValues, ...initialValues })
   const [selectedServices, setSelectedServices] = useState(new Set(initialServices))
+  // qty for simple quantity services (e.g. Tyre Valve): { [serviceId]: '1' }
+  const [serviceQuantities, setServiceQuantities] = useState(() => {
+    const init = {}
+    for (const [id, qty] of Object.entries(initialServiceQuantities)) init[id] = String(qty)
+    return init
+  })
   const [serviceCatalog, setServiceCatalog] = useState([])
+  const [priceRules, setPriceRules] = useState({})
   const [errors, setErrors] = useState({})
   const [serviceErrors, setServiceErrors] = useState({}) // { balancing: {...}, tyreRepair: {...} }
   const [serverError, setServerError] = useState('')
@@ -103,6 +114,19 @@ export default function JobCardForm({
         if (!cached) setServerError('Could not load services. Please check your connection.')
       })
       .finally(() => setLoadingCatalog(false))
+
+    // Fetch variable price rules (Mounting & Tyre Repair) — cache in localStorage too
+    const RULES_KEY = 'pioneer_price_rules'
+    const cachedRules = localStorage.getItem(RULES_KEY)
+    if (cachedRules) {
+      try { setPriceRules(JSON.parse(cachedRules)) } catch (_) {}
+    }
+    fetchPriceRules()
+      .then((rules) => {
+        setPriceRules(rules)
+        localStorage.setItem(RULES_KEY, JSON.stringify(rules))
+      })
+      .catch(() => {}) // non-critical — tiles just won't show variable prices offline
   }, [])
 
   // Sync initialValues on edit load
@@ -136,6 +160,14 @@ export default function JobCardForm({
   const balancingSelected  = isServiceSelected('balancing')
   const tyreRepairSelected = isServiceSelected('tyre repair')
   const mountingSelected   = isServiceSelected('mounting')
+
+  function getServiceQty(id) {
+    return serviceQuantities[id] ?? '1'
+  }
+
+  function setServiceQty(id, val) {
+    setServiceQuantities((prev) => ({ ...prev, [id]: val }))
+  }
 
   // ── Auto-lookup ────────────────────────────────────────────────────────────
   async function handleMobileBlur() {
@@ -211,8 +243,8 @@ export default function JobCardForm({
       const rows = tyreRepairRowsRef.current
       const rowErrors = rows.map((r) => {
         const re = {}
-        if (!r.patch_count || isNaN(r.patch_count) || Number(r.patch_count) < 1)
-          re.patch_count = 'Enter patch count (1 or more).'
+        if (!r.quantity || isNaN(r.quantity) || Number(r.quantity) < 1)
+          re.quantity = 'Enter quantity (1 or more).'
         return re
       })
       if (rowErrors.some((re) => Object.keys(re).length))
@@ -257,6 +289,7 @@ export default function JobCardForm({
         tyreRepairSelected ? tyreRepairRowsRef.current : [],
         serviceCatalog,
         mountingSelected   ? mountingDetailRef.current : null,
+        serviceQuantities,
       )
     } catch (err) {
       setServerError(err.message)
@@ -368,19 +401,63 @@ export default function JobCardForm({
             {serviceCatalog.map((svc) => {
               const checked = selectedServices.has(svc.id)
               const hasDetail = DETAIL_SERVICES.includes(svc.name.toLowerCase())
+              const svcKey = svc.name  // matches service_price_rules.service_name
+
+              // Build price label for this tile
+              let priceLabel = null
+              if (svc.unit_price > 0) {
+                priceLabel = `Birr ${Number(svc.unit_price).toLocaleString('en-SA', { minimumFractionDigits: 2 })}`
+              } else if (svcKey === 'Mounting') {
+                const r = priceRules['Mounting'] ?? {}
+                if (r.NORMAL || r.XL) {
+                  priceLabel = r.NORMAL === r.XL
+                    ? `Birr ${Number(r.NORMAL).toLocaleString('en-SA', { minimumFractionDigits: 2 })} / tyre`
+                    : `Birr ${Number(r.NORMAL ?? 0).toLocaleString('en-SA', { minimumFractionDigits: 2 })}–${Number(r.XL ?? 0).toLocaleString('en-SA', { minimumFractionDigits: 2 })} / tyre`
+                }
+              } else if (svcKey === 'Tyre Repair') {
+                const r = priceRules['Tyre Repair'] ?? {}
+                const prices = Object.values(r).filter(Boolean)
+                if (prices.length) {
+                  const min = Math.min(...prices)
+                  const max = Math.max(...prices)
+                  priceLabel = min === max
+                    ? `Birr ${Number(min).toLocaleString('en-SA', { minimumFractionDigits: 2 })}`
+                    : `Birr ${Number(min).toLocaleString('en-SA', { minimumFractionDigits: 2 })}–${Number(max).toLocaleString('en-SA', { minimumFractionDigits: 2 })}`
+                }
+              }
+
+              const isQtyService = QTY_SERVICES.includes(svc.name.toLowerCase())
+
               return (
-                <button
-                  key={svc.id}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={checked}
-                  className={`service-tile ${checked ? 'service-tile--active' : ''} ${hasDetail ? 'service-tile--has-detail' : ''}`}
-                  onClick={() => toggleService(svc.id)}
-                >
-                  <span className="service-tile__check">{checked ? '✓' : ''}</span>
-                  <span className="service-tile__name">{svc.name}</span>
-                  {hasDetail && <span className="service-tile__detail-hint">+ details</span>}
-                </button>
+                <div key={svc.id}>
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={checked}
+                    className={`service-tile ${checked ? 'service-tile--active' : ''} ${hasDetail ? 'service-tile--has-detail' : ''}`}
+                    onClick={() => toggleService(svc.id)}
+                  >
+                    <span className="service-tile__check">{checked ? '✓' : ''}</span>
+                    <span className="service-tile__name">{svc.name}</span>
+                    {priceLabel && <span className="service-tile__price">{priceLabel}</span>}
+                    {hasDetail && <span className="service-tile__detail-hint">+ details</span>}
+                  </button>
+                  {checked && isQtyService && (
+                    <div className="service-tile-qty">
+                      <label htmlFor={`qty-${svc.id}`} className="service-tile-qty__label">Qty</label>
+                      <input
+                        id={`qty-${svc.id}`}
+                        type="number"
+                        className="field-input service-tile-qty__input"
+                        value={getServiceQty(svc.id)}
+                        min={1}
+                        step={1}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setServiceQty(svc.id, e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
               )
             })}
           </div>

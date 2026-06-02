@@ -17,6 +17,15 @@ function ProtectedRoute({ children }) {
   return children
 }
 
+/** Only staff can access this route; cashiers get redirected to job cards list */
+function StaffOnlyRoute({ children }) {
+  const { session, loading, isStaff } = useAuth()
+  if (loading) return <div className="page-loading"><Spinner size={48} /></div>
+  if (!session) return <Navigate to="/login" replace />
+  if (!isStaff) return <Navigate to="/job-cards" replace />
+  return children
+}
+
 function PublicRoute({ children }) {
   const { session, loading } = useAuth()
   if (loading) return <div className="page-loading"><Spinner size={48} /></div>
@@ -31,9 +40,9 @@ function AppRoutes() {
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route index element={<DashboardPage />} />
         <Route path="job-cards" element={<JobCardListPage />} />
-        <Route path="job-cards/new" element={<CreateJobCardPage />} />
+        <Route path="job-cards/new" element={<StaffOnlyRoute><CreateJobCardPage /></StaffOnlyRoute>} />
         <Route path="job-cards/:id" element={<JobCardDetailPage />} />
-        <Route path="job-cards/:id/edit" element={<EditJobCardPage />} />
+        <Route path="job-cards/:id/edit" element={<StaffOnlyRoute><EditJobCardPage /></StaffOnlyRoute>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

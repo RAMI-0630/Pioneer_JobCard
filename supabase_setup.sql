@@ -245,13 +245,13 @@ drop table if exists job_card_tyre_repair_rows;
 -- Child of job_card_service_lines (the Balancing line).
 create table if not exists balancing_details (
   id                      uuid primary key default uuid_generate_v4(),
-  job_card_service_line_id uuid not null references job_card_service_lines(id) on delete cascade,
+  service_line_id         uuid not null references job_card_service_lines(id) on delete cascade,
   tyre_position           text not null check (tyre_position in ('FL','FR','RL','RR','SPARE')),
   grams_used              numeric not null check (grams_used >= 0),
   sort_order              integer not null default 0,
   created_at              timestamptz default now()
 );
-create index if not exists bd_service_line_id_idx on balancing_details(job_card_service_line_id);
+create index if not exists bd_service_line_id_idx on balancing_details(service_line_id);
 
 alter table balancing_details enable row level security;
 create policy "bd: auth read"   on balancing_details for select using (auth.role() = 'authenticated');
@@ -262,14 +262,14 @@ create policy "bd: auth delete" on balancing_details for delete using (auth.role
 -- Child of job_card_service_lines (the Tyre Repair line).
 create table if not exists tyre_repair_details (
   id                      uuid primary key default uuid_generate_v4(),
-  job_card_service_line_id uuid not null references job_card_service_lines(id) on delete cascade,
+  service_line_id         uuid not null references job_card_service_lines(id) on delete cascade,
   tyre_position           text not null check (tyre_position in ('FL','FR','RL','RR','SPARE')),
   patch_type              text not null check (patch_type in ('SMALL','MEDIUM','LARGE')),
   patch_count             integer not null check (patch_count >= 1),
   sort_order              integer not null default 0,
   created_at              timestamptz default now()
 );
-create index if not exists trd_service_line_id_idx on tyre_repair_details(job_card_service_line_id);
+create index if not exists trd_service_line_id_idx on tyre_repair_details(service_line_id);
 
 alter table tyre_repair_details enable row level security;
 create policy "trd: auth read"   on tyre_repair_details for select using (auth.role() = 'authenticated');
@@ -282,7 +282,7 @@ create policy "trd: auth delete" on tyre_repair_details for delete using (auth.r
 create table if not exists mounting_details (
   id               uuid primary key default uuid_generate_v4(),
   service_line_id  uuid not null references job_card_service_lines(id) on delete cascade,
-  tyre_count       integer not null check (tyre_count >= 1),
+  number_of_tyres  integer not null check (number_of_tyres >= 1),
   tyre_type        text not null check (tyre_type in ('NORMAL', 'XL')),
   created_at       timestamptz default now()
 );

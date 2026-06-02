@@ -1,19 +1,37 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { fetchJobCardById } from '../lib/queries'
+import { fetchJobCardById, fetchPriceRules, computeJobTotal, repairRuleKey } from '../lib/queries'
+import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/ui/StatusBadge'
 import Spinner from '../components/ui/Spinner'
 import ErrorAlert from '../components/ui/ErrorAlert'
 
+function fmt(amount) {
+  return Number(amount ?? 0).toLocaleString('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function repairLabel(row) {
+  if (row.repair_method === 'WETIF') return 'Tubeless Wetif'
+  const size = row.patch_size ?? row.patch_type ?? ''
+  return `Patch – ${size}`
+}
+
 export default function JobCardDetailPage() {
   const { id } = useParams()
+  const { isStaff } = useAuth()
   const [jc, setJc] = useState(null)
+  const [priceRules, setPriceRules] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetchJobCardById(id)
-      .then(setJc)
+    if (id.startsWith('local-')) {
+      setError('This job card has not synced yet. It will appear here once you are back online.')
+      setLoading(false)
+      return
+    }
+    Promise.all([fetchJobCardById(id), fetchPriceRules()])
+      .then(([card, rules]) => { setJc(card); setPriceRules(rules) })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [id])
@@ -33,6 +51,8 @@ export default function JobCardDetailPage() {
   const tyreRepairRows = (tyreRepairLine?.tyre_repair_details ?? []).sort((a, b) => a.sort_order - b.sort_order)
   const mountingDetail = mountingLine?.mounting_details?.[0] ?? null
 
+  const { lines: pricedLines, total } = computeJobTotal(serviceLines, priceRules)
+
   return (
     <div className="page">
       <div className="page-header no-print">
@@ -42,7 +62,9 @@ export default function JobCardDetailPage() {
         </div>
         <div className="page-header__actions">
           <button className="btn btn--ghost" onClick={() => window.print()}>🖨 Print</button>
-          <Link to={`/job-cards/${jc.id}/edit`} className="btn btn--primary">Edit Job Card</Link>
+          {isStaff && (
+            <Link to={`/job-cards/${jc.id}/edit`} className="btn btn--primary">Edit Job Card</Link>
+          )}
         </div>
       </div>
 
@@ -126,16 +148,44 @@ export default function JobCardDetailPage() {
             {services.length === 0 ? (
               <p className="muted">No services recorded.</p>
             ) : (
-              <ul className="service-list">
-                {serviceLines.map((sl) => (
-                  <li key={sl.id} className="service-list__item">
-                    ✓ {sl.service_catalog?.name}
-                    {sl.quantity > 1 && (
-                      <span className="service-list__qty"> × {sl.quantity}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <table className="detail-sub-table" style={{ marginBottom: '0.5rem' }}>
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th style={{ textAlign: 'center' }}>Qty</th>
+                    <th style={{ textAlign: 'right' }}>Unit Price</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pricedLines.map((sl) => (
+                    <tr key={sl.id}>
+                      <td style={{ fontWeight: 600 }}>✓ {sl.service_catalog?.name}</td>
+                      <td style={{ textAlign: 'center' }}>{sl.quantity}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>
+                        {sl.unit_price != null && sl.unit_price > 0
+                          ? `Birr ${fmt(sl.unit_price)}`
+                          : <span className="muted">—</span>}
+                      </td>
+                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 600 }}>
+                        {sl.line_total > 0 ? `Birr ${fmt(sl.line_total)}` : <span className="muted">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {total > 0 && (
+                  <tfoot>
+                    <tr style={{ borderTop: '2px solid var(--border)' }}>
+                      <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700, paddingTop: '0.625rem' }}>
+                        Total
+                      </td>
+                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 700, fontSize: '1.0625rem', paddingTop: '0.625rem', color: 'var(--success)' }}>
+                        Birr {fmt(total)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             )}
 
             {/* Balancing detail */}
@@ -164,16 +214,31 @@ export default function JobCardDetailPage() {
                 <p className="detail-sub-table-title">Tyre Repair Detail</p>
                 <table className="detail-sub-table">
                   <thead>
-                    <tr><th>Position</th><th>Patch Type</th><th>Patches</th></tr>
+                    <tr>
+                      <th>Position</th>
+                      <th>Repair Type</th>
+                      <th style={{ textAlign: 'center' }}>Qty</th>
+                      <th style={{ textAlign: 'right' }}>Unit Price</th>
+                      <th style={{ textAlign: 'right' }}>Subtotal</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {tyreRepairRows.map((r, i) => (
-                      <tr key={i}>
-                        <td><span className="badge badge--closed">{r.tyre_position}</span></td>
-                        <td>{r.patch_type}</td>
-                        <td>{r.patch_count}</td>
-                      </tr>
-                    ))}
+                    {(pricedLines.find(sl => sl.service_catalog?.name?.toLowerCase() === 'tyre repair')?.repair_breakdown ?? tyreRepairRows).map((r, i) => {
+                      const qty = r.quantity ?? r.patch_count ?? 1
+                      return (
+                        <tr key={i}>
+                          <td><span className="badge badge--closed">{r.tyre_position}</span></td>
+                          <td>{repairLabel(r)}</td>
+                          <td style={{ textAlign: 'center' }}>{qty}</td>
+                          <td style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>
+                            {r.unit_price > 0 ? `Birr ${fmt(r.unit_price)}` : <span className="muted">—</span>}
+                          </td>
+                          <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 600 }}>
+                            {r.line_total > 0 ? `Birr ${fmt(r.line_total)}` : <span className="muted">—</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -185,12 +250,24 @@ export default function JobCardDetailPage() {
                 <p className="detail-sub-table-title">Mounting Detail</p>
                 <table className="detail-sub-table">
                   <thead>
-                    <tr><th>Number of Tyres</th><th>Tyre Size</th></tr>
+                    <tr>
+                      <th>Number of Tyres</th>
+                      <th>Tyre Size</th>
+                      {total > 0 && <th style={{ textAlign: 'right' }}>Unit Price</th>}
+                    </tr>
                   </thead>
                   <tbody>
                     <tr>
                       <td>{mountingDetail.number_of_tyres}</td>
                       <td>{mountingDetail.tyre_type}</td>
+                      {total > 0 && (
+                        <td style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>
+                          {(() => {
+                            const mp = (priceRules['Mounting'] ?? {})[mountingDetail.tyre_type]
+                            return mp ? `Birr ${fmt(mp)} / tyre` : <span className="muted">—</span>
+                          })()}
+                        </td>
+                      )}
                     </tr>
                   </tbody>
                 </table>

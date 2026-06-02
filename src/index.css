@@ -750,6 +750,40 @@ select.field-input { appearance: auto; }
 }
 .service-tile--active .service-tile__detail-hint { color: var(--primary); }
 
+.service-tile__price {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--success);
+  font-family: var(--mono);
+}
+.service-tile--active .service-tile__price { color: var(--success); }
+
+/* Qty input shown below a selected tile (e.g. Tyre Valve) */
+.service-tile-qty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--primary-light);
+  border: 2px solid var(--primary);
+  border-top: none;
+  border-radius: 0 0 var(--r) var(--r);
+}
+.service-tile-qty__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary-dark);
+  white-space: nowrap;
+}
+.service-tile-qty__input {
+  width: 72px;
+  min-height: 36px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 /* ── Service Panel (balancing / tyre repair) ────────────────────────────────── */
 .service-panel-wrap {
   margin-top: 1.125rem;
@@ -851,6 +885,12 @@ select.field-input { appearance: auto; }
   vertical-align: middle;
 }
 .detail-sub-table tbody tr:last-child td { border-bottom: none; }
+
+.detail-sub-table tfoot td {
+  padding: 0.625rem 0.875rem 0.5rem;
+  background: var(--bg);
+}
+.detail-sub-table tfoot tr { border-top: 2px solid var(--border); }
 
 /* ── Field label hint ───────────────────────────────────────────────────────── */
 .field-label-hint {

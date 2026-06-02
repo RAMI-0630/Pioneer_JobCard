@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { fetchDashboardStats, fetchRecentJobCards } from '../lib/queries'
+import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/ui/StatusBadge'
 import Spinner from '../components/ui/Spinner'
 import ErrorAlert from '../components/ui/ErrorAlert'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const { isStaff } = useAuth()
   const [stats, setStats] = useState({ openCount: 0, completedToday: 0 })
   const [recent, setRecent] = useState([])
   const [loading, setLoading] = useState(true)
@@ -20,7 +22,13 @@ export default function DashboardPage() {
         setStats(s)
         setRecent(r)
       } catch (err) {
-        setError(err.message)
+        // Silently ignore network errors offline — stats just show as 0
+        if (!navigator.onLine) {
+          setStats({ openCount: 0, completedToday: 0 })
+          setRecent([])
+        } else {
+          setError(err.message)
+        }
       } finally {
         setLoading(false)
       }
@@ -42,11 +50,13 @@ export default function DashboardPage() {
 
       {/* Primary actions — the two things technicians do most */}
       <div className="dash-actions">
-        <Link to="/job-cards/new" className="dash-action-btn dash-action-btn--primary">
-          <span className="dash-action-btn__icon">＋</span>
-          New Job Card
-        </Link>
-        <Link to="/job-cards" className="dash-action-btn">
+        {isStaff && (
+          <Link to="/job-cards/new" className="dash-action-btn dash-action-btn--primary">
+            <span className="dash-action-btn__icon">＋</span>
+            New Job Card
+          </Link>
+        )}
+        <Link to="/job-cards" className={`dash-action-btn${isStaff ? '' : ' dash-action-btn--primary'}`}>
           <span className="dash-action-btn__icon">🔍</span>
           Search Records
         </Link>

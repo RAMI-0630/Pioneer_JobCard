@@ -60,7 +60,7 @@ export default function MountingPanel({ initialData = {}, onChange, errors = {} 
         </div>
 
         <div className="field">
-          <label htmlFor="mnt-size" className="field-label">Tyre Size</label>
+          <label htmlFor="mnt-size" className="field-label">Tyre Type</label>
           <select
             id="mnt-size"
             className={`field-input ${errors.tyre_type ? 'field-input--error' : ''}`}

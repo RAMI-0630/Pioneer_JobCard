@@ -42,29 +42,22 @@ export default function EditJobCardPage() {
     }
   }, [id])
 
-  async function handleSubmit(form, selectedServiceIds, balancingRows, tyreRepairRows, serviceCatalog, mountingDetail) {
-    // 6.4 — Offline path (Req 4.2, 4.3, 4.4)
+  async function handleSubmit(form, selectedServiceIds, balancingRows, tyreRepairRows, serviceCatalog, mountingDetail, serviceQuantities) {
     if (!isOnline) {
-      const payload = { form, selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog }
+      const payload = { form, selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities }
       if (id.startsWith('local-')) {
-        // Req 4.2: update the existing draft in the queue
         const queueItem = await offlineQueue.getByLocalId(id)
-        if (queueItem) {
-          await offlineQueue.updateItem(queueItem.id, { payload })
-        }
+        if (queueItem) await offlineQueue.updateItem(queueItem.id, { payload })
       } else {
-        // Req 4.3: enqueue an EDIT for a real Supabase UUID
         await offlineQueue.enqueue('EDIT', id, payload)
       }
       await refreshPendingCount()
-      // Req 4.4: show "Changes saved locally" toast via local state
       setSavedMsg('Changes saved locally')
       setTimeout(() => setSavedMsg(''), 3000)
       navigate('/job-cards')
       return
     }
 
-    // Online path — unchanged (Req 4.5)
     if (jc.customers?.id) {
       await updateCustomer(jc.customers.id, { full_name: form.full_name, mobile: form.mobile })
     }
@@ -90,9 +83,7 @@ export default function EditJobCardPage() {
       notes: form.notes || null,
     })
 
-    const serviceLines = buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog)
-    console.log('[EditJobCard] selectedServiceIds at submit:', selectedServiceIds)
-    console.log('[EditJobCard] built serviceLines:', serviceLines.map(s => s.service_catalog_id))
+    const serviceLines = buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities)
     await replaceServiceLines(id, serviceLines)
 
     navigate(`/job-cards/${id}`)
@@ -143,6 +134,16 @@ export default function EditJobCardPage() {
     ? { number_of_tyres: String(mountingLine.mounting_details[0].number_of_tyres), tyre_type: mountingLine.mounting_details[0].tyre_type }
     : {}
 
+  // Build qty map for simple-quantity services (e.g. Tyre Valve) from existing service lines
+  const initialServiceQuantities = {}
+  for (const sl of serviceLines) {
+    const name = sl.service_catalog?.name?.toLowerCase() ?? ''
+    const isQty = !['balancing', 'tyre repair', 'mounting'].includes(name)
+    if (isQty && sl.quantity > 1 && sl.service_catalog?.id) {
+      initialServiceQuantities[sl.service_catalog.id] = sl.quantity
+    }
+  }
+
   return (
     <div className="page">
       <div className="page-header">
@@ -162,6 +163,7 @@ export default function EditJobCardPage() {
       <JobCardForm
         initialValues={initialValues}
         initialServices={initialServices}
+        initialServiceQuantities={initialServiceQuantities}
         initialBalancing={initialBalancing}
         initialTyreRepair={initialTyreRepair}
         initialMounting={initialMounting}
@@ -190,7 +192,7 @@ export default function EditJobCardPage() {
   )
 }
 
-function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog) {
+function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities = {}) {
   return selectedServiceIds.map((id) => {
     const svc  = serviceCatalog.find((s) => s.id === id)
     const name = svc?.name?.toLowerCase() ?? ''
@@ -204,7 +206,8 @@ function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mo
     if (name === 'mounting' && mountingDetail)
       return { service_catalog_id: id, quantity: Number(mountingDetail.number_of_tyres) || 1, mountingDetail }
 
-    return { service_catalog_id: id, quantity: 1 }
+    const qty = Math.max(1, parseInt(serviceQuantities[id] ?? '1', 10) || 1)
+    return { service_catalog_id: id, quantity: qty }
   })
 }
 

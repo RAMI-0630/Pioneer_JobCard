@@ -25,14 +25,15 @@ export default function CreateJobCardPage() {
 
   useEffect(() => {
     if (!isOnline) {
-      // Offline: generate a placeholder job card number locally so the form renders
       setNextNo('---')
       return
     }
+    // Only fetch if we don't already have a number (don't re-fetch if connectivity toggles)
+    if (nextNo !== null) return
     fetchNextJobCardNo().then(setNextNo).catch((e) => setLoadError(e.message))
   }, [isOnline])
 
-  async function handleSubmit(form, selectedServiceIds, balancingRows, tyreRepairRows, serviceCatalog, mountingDetail) {
+  async function handleSubmit(form, selectedServiceIds, balancingRows, tyreRepairRows, serviceCatalog, mountingDetail, serviceQuantities) {
     // Offline path — Req 3.1, 3.2, 3.3, 3.4
     if (!isOnline) {
       const localId = `local-${crypto.randomUUID()}`
@@ -43,18 +44,17 @@ export default function CreateJobCardPage() {
         tyreRepairRows,
         mountingDetail,
         serviceCatalog,
+        serviceQuantities,
       })
       await refreshPendingCount()
       navigate('/job-cards')
       return
     }
 
-    // Online path — unchanged (Req 3.5)
-    // 1. Upsert customer
+    // Online path
     let customer = await findCustomerByMobile(form.mobile)
     if (!customer) customer = await createCustomer({ full_name: form.full_name, mobile: form.mobile })
 
-    // 2. Upsert vehicle
     let vehicle = await findVehicleByPlate(form.plate_no)
     if (!vehicle) {
       vehicle = await createVehicle({
@@ -70,7 +70,6 @@ export default function CreateJobCardPage() {
       })
     }
 
-    // 3. Create job card
     const jobCard = await createJobCard({
       job_card_no: form.job_card_no,
       customer_id: customer.id,
@@ -84,8 +83,7 @@ export default function CreateJobCardPage() {
       created_by: user?.id ?? null,
     })
 
-    // 4. Build service lines with detail rows attached
-    const serviceLines = buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog)
+    const serviceLines = buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities)
     await replaceServiceLines(jobCard.id, serviceLines)
 
     navigate(`/job-cards/${jobCard.id}`)
@@ -104,7 +102,7 @@ export default function CreateJobCardPage() {
   )
 }
 
-function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog) {
+function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities = {}) {
   return selectedServiceIds.map((id) => {
     const svc  = serviceCatalog.find((s) => s.id === id)
     const name = svc?.name?.toLowerCase() ?? ''
@@ -118,6 +116,8 @@ function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mo
     if (name === 'mounting' && mountingDetail)
       return { service_catalog_id: id, quantity: Number(mountingDetail.number_of_tyres) || 1, mountingDetail }
 
-    return { service_catalog_id: id, quantity: 1 }
+    // Use serviceQuantities for qty services (e.g. Tyre Valve), default to 1
+    const qty = Math.max(1, parseInt(serviceQuantities[id] ?? '1', 10) || 1)
+    return { service_catalog_id: id, quantity: qty }
   })
 }

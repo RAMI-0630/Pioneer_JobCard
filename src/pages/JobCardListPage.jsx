@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { searchJobCards } from '../lib/queries'
+import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/ui/StatusBadge'
 import Spinner from '../components/ui/Spinner'
 import ErrorAlert from '../components/ui/ErrorAlert'
@@ -9,8 +10,14 @@ import EmptyState from '../components/ui/EmptyState'
 const PAGE_SIZE = 20
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'CLOSED']
 
+function todayStr() {
+  const d = new Date()
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
+}
+
 export default function JobCardListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { isStaff } = useAuth()
 
   const [filters, setFilters] = useState({
     jobCardNo:    searchParams.get('jobCardNo')    || '',
@@ -70,13 +77,21 @@ export default function JobCardListPage() {
     setSearchParams({})
   }
 
+  function handleToday() {
+    const today = todayStr()
+    setFilters((prev) => ({ ...prev, dateFrom: today, dateTo: today, q: '' }))
+    setPage(1)
+  }
+
+  const isToday = filters.dateFrom === todayStr() && filters.dateTo === todayStr()
+
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">Job Cards</h1>
-        <Link to="/job-cards/new" className="btn btn--primary">+ New</Link>
+        {isStaff && <Link to="/job-cards/new" className="btn btn--primary">+ New</Link>}
       </div>
 
       <ErrorAlert message={error} onDismiss={() => setError('')} />
@@ -92,6 +107,14 @@ export default function JobCardListPage() {
             placeholder="Search by plate, mobile, job card no…"
             aria-label="Quick search"
           />
+          <button
+            className={`btn btn--sm ${isToday ? 'btn--primary' : 'btn--ghost'}`}
+            type="button"
+            onClick={isToday ? handleReset : handleToday}
+            title={isToday ? 'Clear today filter' : "Show today's job cards"}
+          >
+            {isToday ? '✕ Today' : '📅 Today'}
+          </button>
           <button
             className="btn btn--ghost btn--sm"
             type="button"
@@ -196,7 +219,9 @@ export default function JobCardListPage() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', flexShrink: 0 }}>
                   <Link to={`/job-cards/${jc.id}`} className="btn btn--ghost btn--sm">View</Link>
-                  <Link to={`/job-cards/${jc.id}/edit`} className="btn btn--ghost btn--sm">Edit</Link>
+                  {isStaff && (
+                    <Link to={`/job-cards/${jc.id}/edit`} className="btn btn--ghost btn--sm">Edit</Link>
+                  )}
                 </div>
               </div>
             ))}

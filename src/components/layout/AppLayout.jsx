@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import SyncStatusBar from '../ui/SyncStatusBar'
 
 export default function AppLayout() {
-  const { user, signOut } = useAuth()
+  const { user, signOut, isStaff, isCashier } = useAuth()
   const navigate = useNavigate()
 
   const handleSignOut = async () => {
@@ -29,14 +29,21 @@ export default function AppLayout() {
           <NavLink to="/job-cards" className={({ isActive }) => `nav-link ${isActive ? 'nav-link--active' : ''}`}>
             Job Cards
           </NavLink>
-          <NavLink to="/job-cards/new" className={({ isActive }) => `nav-link ${isActive ? 'nav-link--active' : ''}`}>
-            + New Job Card
-          </NavLink>
+          {isStaff && (
+            <NavLink to="/job-cards/new" className={({ isActive }) => `nav-link ${isActive ? 'nav-link--active' : ''}`}>
+              + New Job Card
+            </NavLink>
+          )}
         </nav>
 
         <div className="topbar__user">
+          {isCashier && (
+            <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '0.15rem 0.5rem', borderRadius: '999px', fontWeight: 700, letterSpacing: '0.04em' }}>
+              CASHIER
+            </span>
+          )}
           <span className="topbar__email">{user?.email}</span>
-          <button className="btn btn--ghost-white btn--sm" onClick={handleSignOut} disabled={true}> 
+          <button className="btn btn--ghost-white btn--sm" onClick={handleSignOut}>
             Sign Out
           </button>
         </div>

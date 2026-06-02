@@ -5,11 +5,97 @@ import { supabase } from './supabase'
 export async function fetchServiceCatalog() {
   const { data, error } = await supabase
     .from('service_catalog')
-    .select('id, name')
+    .select('id, name, unit_price')
     .eq('active', true)
     .order('name')
   if (error) throw error
   return data
+}
+
+/**
+ * Fetches variable price rules for Tyre Repair and Mounting.
+ * Returns a map: { 'Tyre Repair': { PATCH_SMALL: 15, PATCH_MEDIUM: 20, ... }, 'Mounting': { NORMAL: 20, XL: 25 } }
+ */
+export async function fetchPriceRules() {
+  const { data, error } = await supabase
+    .from('service_price_rules')
+    .select('service_name, rule_key, price')
+  if (error) throw error
+
+  const map = {}
+  for (const row of data ?? []) {
+    if (!map[row.service_name]) map[row.service_name] = {}
+    map[row.service_name][row.rule_key] = Number(row.price)
+  }
+  return map
+}
+
+/**
+ * Derives the price-rule key for a tyre_repair_details row.
+ *   PATCH  → 'PATCH_SMALL' | 'PATCH_MEDIUM' | 'PATCH_LARGE'
+ *   WETIF  → 'WETIF'
+ */
+export function repairRuleKey(row) {
+  if (row.repair_method === 'WETIF') return 'WETIF'
+  const size = row.patch_size ?? row.patch_type ?? 'SMALL'   // fallback for old rows
+  return `PATCH_${size}`
+}
+
+/**
+ * Computes the total amount for a job card.
+ *
+ * For simple services: unitPrice = service_catalog.unit_price × quantity
+ * For Tyre Repair:     sum of (priceRules[ruleKey] × row.quantity) per detail row
+ * For Mounting:        sum of (priceRules[tyre_type] × 1) per tyre  →  priceRules[tyre_type] × number_of_tyres
+ *
+ * @param {Array} serviceLines  – job_card_service_lines with nested detail rows
+ * @param {Object} priceRules   – output of fetchPriceRules()
+ * @returns {{ lines: Array, total: number }}
+ */
+export function computeJobTotal(serviceLines, priceRules = {}) {
+  const lines = (serviceLines ?? []).map((sl) => {
+    const svcName = sl.service_catalog?.name ?? ''
+
+    // ── Tyre Repair: price per row (repair_method + quantity) ──────────────
+    if (svcName.toLowerCase() === 'tyre repair') {
+      const repairRows = sl.tyre_repair_details ?? []
+      const rules = priceRules['Tyre Repair'] ?? {}
+      let repairTotal = 0
+      const breakdown = repairRows.map((r) => {
+        const key       = repairRuleKey(r)
+        const unitPrice = rules[key] ?? 0
+        const qty       = Number(r.quantity ?? r.patch_count ?? 1)
+        const rowTotal  = unitPrice * qty
+        repairTotal += rowTotal
+        return { ...r, unit_price: unitPrice, line_total: rowTotal }
+      })
+      return {
+        ...sl,
+        unit_price: null,          // variable — no single unit price to show
+        line_total: repairTotal,
+        repair_breakdown: breakdown,
+      }
+    }
+
+    // ── Mounting: price per tyre by tyre_type ──────────────────────────────
+    if (svcName.toLowerCase() === 'mounting') {
+      const detail    = sl.mounting_details?.[0]
+      const rules     = priceRules['Mounting'] ?? {}
+      const tyreType  = detail?.tyre_type ?? 'NORMAL'
+      const unitPrice = rules[tyreType] ?? Number(sl.service_catalog?.unit_price ?? 0)
+      const qty       = Number(detail?.number_of_tyres ?? sl.quantity ?? 1)
+      const lineTotal = unitPrice * qty
+      return { ...sl, unit_price: null, line_total: lineTotal, mounting_unit_price: unitPrice }
+    }
+
+    // ── Simple flat-price service ──────────────────────────────────────────
+    const unitPrice = Number(sl.service_catalog?.unit_price ?? 0)
+    const qty       = sl.quantity ?? 1
+    return { ...sl, unit_price: unitPrice, line_total: unitPrice * qty }
+  })
+
+  const total = lines.reduce((sum, l) => sum + (l.line_total ?? 0), 0)
+  return { lines, total }
 }
 
 // ─── Customers ──────────────────────────────────────────────────────────────
@@ -89,7 +175,6 @@ export async function fetchNextJobCardNo() {
     .from('job_cards')
     .select('job_card_no')
     .order('created_at', { ascending: false })
-    .limit(100) // grab recent batch to find the highest numeric value
 
   if (error) throw error
 
@@ -131,9 +216,6 @@ export async function createJobCard(fields) {
 //   3. Insert detail rows for Balancing, Tyre Repair, and Mounting.
 
 export async function replaceServiceLines(job_card_id, serviceLines) {
-  console.log('[replaceServiceLines] called for job_card_id:', job_card_id)
-  console.log('[replaceServiceLines] serviceLines to insert:', serviceLines.map(s => s.service_catalog_id))
-
   // 1. Fetch existing line IDs so we can explicitly delete detail rows first
   const { data: existingLines, error: fetchErr } = await supabase
     .from('job_card_service_lines')
@@ -141,27 +223,21 @@ export async function replaceServiceLines(job_card_id, serviceLines) {
     .eq('job_card_id', job_card_id)
   if (fetchErr) throw fetchErr
 
-  console.log('[replaceServiceLines] existing lines before delete:', existingLines?.length, existingLines?.map(l => l.id))
-
   if (existingLines?.length) {
     const lineIds = existingLines.map((l) => l.id)
-
-    const [balRes, tyrRes, mntRes] = await Promise.all([
+    await Promise.all([
       supabase.from('balancing_details').delete().in('service_line_id', lineIds),
       supabase.from('tyre_repair_details').delete().in('service_line_id', lineIds),
       supabase.from('mounting_details').delete().in('service_line_id', lineIds),
     ])
-    console.log('[replaceServiceLines] detail delete errors:', balRes.error, tyrRes.error, mntRes.error)
   }
 
   // 2. Delete service lines
-  const { error: delErr, data: delData } = await supabase
+  const { error: delErr } = await supabase
     .from('job_card_service_lines')
     .delete()
     .eq('job_card_id', job_card_id)
-    .select('id')
   if (delErr) throw delErr
-  console.log('[replaceServiceLines] deleted service lines:', delData?.length, delData?.map(l => l.id))
 
   if (!serviceLines.length) return
 
@@ -206,8 +282,12 @@ export async function replaceServiceLines(job_card_id, serviceLines) {
         tyreRepairInserts.push({
           service_line_id: line.id,
           tyre_position:   r.tyre_position,
-          patch_type:      r.patch_type,
-          patch_count:     Number(r.patch_count),
+          repair_method:   r.repair_method ?? 'PATCH',
+          patch_size:      r.repair_method === 'WETIF' ? null : (r.patch_size ?? r.patch_type ?? 'SMALL'),
+          quantity:        Number(r.quantity ?? r.patch_count ?? 1),
+          // keep legacy columns in sync
+          patch_type:      r.repair_method === 'WETIF' ? null : (r.patch_size ?? r.patch_type ?? 'SMALL'),
+          patch_count:     Number(r.quantity ?? r.patch_count ?? 1),
           sort_order:      j,
         })
       })
@@ -359,9 +439,9 @@ export async function fetchJobCardById(id) {
       vehicles ( id, plate_no, make, model, year, current_km_reading, tyre_size_front, tyre_size_rear, spare_size ),
       job_card_service_lines (
         id, quantity, sort_order,
-        service_catalog ( id, name ),
-        balancing_details!balancing_details_service_line_id_fkey ( id, tyre_position, grams_used, sort_order ),
-        tyre_repair_details!tyre_repair_details_service_line_id_fkey ( id, tyre_position, patch_type, patch_count, sort_order ),
+        service_catalog ( id, name, unit_price ),
+        balancing_details ( id, tyre_position, grams_used, sort_order ),
+        tyre_repair_details ( id, tyre_position, repair_method, patch_size, quantity, patch_type, patch_count, sort_order ),
         mounting_details ( id, number_of_tyres, tyre_type )
       )
     `)

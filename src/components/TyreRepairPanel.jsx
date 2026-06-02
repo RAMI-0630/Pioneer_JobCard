@@ -2,24 +2,55 @@ import { useEffect, useState } from 'react'
 import ConfirmDialog from './ui/ConfirmDialog'
 
 const POSITIONS   = ['FL', 'FR', 'RL', 'RR', 'SPARE']
-const PATCH_TYPES = ['SMALL', 'MEDIUM', 'LARGE']
+const PATCH_SIZES = ['SMALL', 'MEDIUM', 'LARGE']
 
+/**
+ * Each row shape:
+ *   {
+ *     tyre_position: 'FL'|'FR'|'RL'|'RR'|'SPARE'
+ *     repair_method: 'PATCH' | 'WETIF'
+ *     patch_size:    'SMALL'|'MEDIUM'|'LARGE' | null  (null when WETIF)
+ *     quantity:      string  (number of patches for PATCH; number of tyres for WETIF)
+ *   }
+ */
 function emptyRow() {
-  return { tyre_position: 'FL', patch_type: 'SMALL', patch_count: '1' }
+  return { tyre_position: 'FL', repair_method: 'PATCH', patch_size: 'SMALL', quantity: '1' }
+}
+
+function rowFromInitial(r) {
+  // Handle both old schema (patch_type + patch_count) and new schema (repair_method + patch_size + quantity)
+  if (r.repair_method) {
+    return {
+      tyre_position: r.tyre_position,
+      repair_method: r.repair_method,
+      patch_size:    r.patch_size ?? null,
+      quantity:      String(r.quantity ?? 1),
+    }
+  }
+  // Back-compat: old rows have patch_type + patch_count
+  return {
+    tyre_position: r.tyre_position,
+    repair_method: 'PATCH',
+    patch_size:    r.patch_type ?? 'SMALL',
+    quantity:      String(r.patch_count ?? 1),
+  }
 }
 
 /**
  * TyreRepairPanel
+ *
+ * Two repair methods per tyre:
+ *   PATCH  – select patch size (Small / Medium / Large) + quantity (# of patches)
+ *   WETIF  – tubeless wet-if repair, quantity = number of tyres
+ *
  * Props:
- *   initialRows – [{ tyre_position, patch_type, patch_count }] for edit mode
+ *   initialRows – array of existing rows (edit mode)
  *   onChange(rows) – called whenever rows change
- *   errors – { tyreCount, rows: [{ patch_count }] }
+ *   errors – { tyreCount, rows: [{ quantity }] }
  */
 export default function TyreRepairPanel({ initialRows = [], onChange, errors = {} }) {
   const [rows, setRows] = useState(
-    initialRows.length
-      ? initialRows.map((r) => ({ tyre_position: r.tyre_position, patch_type: r.patch_type, patch_count: String(r.patch_count) }))
-      : [emptyRow()]
+    initialRows.length ? initialRows.map(rowFromInitial) : [emptyRow()]
   )
   const [countInput, setCountInput] = useState(String(initialRows.length || 1))
   const [pendingCount, setPendingCount] = useState(null)
@@ -29,8 +60,7 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
 
   useEffect(() => {
     if (initialRows.length) {
-      const mapped = initialRows.map((r) => ({ tyre_position: r.tyre_position, patch_type: r.patch_type, patch_count: String(r.patch_count) }))
-      setRows(mapped)
+      setRows(initialRows.map(rowFromInitial))
       setCountInput(String(initialRows.length))
     }
   }, [initialRows.length])
@@ -38,7 +68,6 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
   function applyCount(val) {
     const n = parseInt(val, 10)
     if (isNaN(n) || n < 1 || n > 5) {
-      // Reset input to current row count if invalid
       setCountInput(String(rows.length))
       return
     }
@@ -55,18 +84,6 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
     }
   }
 
-  function handleCountChange(e) {
-    setCountInput(e.target.value)
-  }
-
-  function handleCountBlur(e) {
-    applyCount(e.target.value)
-  }
-
-  function handleCountKeyDown(e) {
-    if (e.key === 'Enter') applyCount(e.target.value)
-  }
-
   function confirmReduce() {
     setRows((prev) => prev.slice(0, pendingCount))
     setCountInput(String(pendingCount))
@@ -81,8 +98,18 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
   }
 
   function setRow(index, field, value) {
-    setRows((prev) => prev.map((r, i) => i === index ? { ...r, [field]: value } : r))
+    setRows((prev) => prev.map((r, i) => {
+      if (i !== index) return r
+      const updated = { ...r, [field]: value }
+      // When switching to WETIF, clear patch_size; when switching to PATCH, restore default
+      if (field === 'repair_method') {
+        updated.patch_size = value === 'PATCH' ? (r.patch_size ?? 'SMALL') : null
+      }
+      return updated
+    }))
   }
+
+  const qtyLabel = (row) => row.repair_method === 'WETIF' ? 'No. of Tyres' : 'Patch Count'
 
   return (
     <div className="service-panel">
@@ -91,7 +118,7 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
         <span className="service-panel__title">Tyre Repair Details</span>
       </div>
 
-      {/* Tyre count */}
+      {/* Row count */}
       <div className="field service-panel__count-field">
         <label htmlFor="rep-count" className="field-label">Number of Tyres Repaired</label>
         <input
@@ -101,19 +128,19 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
           value={countInput}
           min={1}
           max={5}
-          onChange={handleCountChange}
-          onBlur={handleCountBlur}
-          onKeyDown={handleCountKeyDown}
+          onChange={(e) => setCountInput(e.target.value)}
+          onBlur={(e) => applyCount(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') applyCount(e.target.value) }}
         />
         {errors.tyreCount && <span className="field-error" role="alert">{errors.tyreCount}</span>}
       </div>
 
-      {/* Repeatable rows */}
       <div className="repeatable-rows">
         {rows.map((row, i) => (
           <div key={i} className="repeatable-row">
             <span className="repeatable-row__index">{i + 1}</span>
 
+            {/* Position */}
             <div className="field repeatable-row__field">
               <label htmlFor={`rep-pos-${i}`} className="field-label">Position</label>
               <select
@@ -126,31 +153,49 @@ export default function TyreRepairPanel({ initialRows = [], onChange, errors = {
               </select>
             </div>
 
+            {/* Repair method */}
             <div className="field repeatable-row__field">
-              <label htmlFor={`rep-patch-${i}`} className="field-label">Patch Type</label>
+              <label htmlFor={`rep-method-${i}`} className="field-label">Repair Type</label>
               <select
-                id={`rep-patch-${i}`}
+                id={`rep-method-${i}`}
                 className="field-input"
-                value={row.patch_type}
-                onChange={(e) => setRow(i, 'patch_type', e.target.value)}
+                value={row.repair_method}
+                onChange={(e) => setRow(i, 'repair_method', e.target.value)}
               >
-                {PATCH_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                <option value="PATCH">Patch</option>
+                <option value="WETIF">Tubeless Wetif</option>
               </select>
             </div>
 
+            {/* Patch size — only for PATCH */}
+            {row.repair_method === 'PATCH' && (
+              <div className="field repeatable-row__field">
+                <label htmlFor={`rep-size-${i}`} className="field-label">Patch Size</label>
+                <select
+                  id={`rep-size-${i}`}
+                  className="field-input"
+                  value={row.patch_size ?? 'SMALL'}
+                  onChange={(e) => setRow(i, 'patch_size', e.target.value)}
+                >
+                  {PATCH_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Quantity */}
             <div className="field repeatable-row__field">
-              <label htmlFor={`rep-count-${i}`} className="field-label">Patch Count</label>
+              <label htmlFor={`rep-qty-${i}`} className="field-label">{qtyLabel(row)}</label>
               <input
-                id={`rep-count-${i}`}
+                id={`rep-qty-${i}`}
                 type="number"
-                className={`field-input ${errors.rows?.[i]?.patch_count ? 'field-input--error' : ''}`}
-                value={row.patch_count}
+                className={`field-input ${errors.rows?.[i]?.quantity ? 'field-input--error' : ''}`}
+                value={row.quantity}
                 min={1}
                 step={1}
-                onChange={(e) => setRow(i, 'patch_count', e.target.value)}
+                onChange={(e) => setRow(i, 'quantity', e.target.value)}
               />
-              {errors.rows?.[i]?.patch_count && (
-                <span className="field-error" role="alert">{errors.rows[i].patch_count}</span>
+              {errors.rows?.[i]?.quantity && (
+                <span className="field-error" role="alert">{errors.rows[i].quantity}</span>
               )}
             </div>
           </div>
