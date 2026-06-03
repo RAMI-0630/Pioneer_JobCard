@@ -48,7 +48,7 @@ export function isSyncing() {
  * @param {object[]} serviceCatalog
  * @returns {object[]}
  */
-function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog) {
+function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities = {}) {
   return selectedServiceIds.map((id) => {
     const svc  = serviceCatalog.find((s) => s.id === id)
     const name = svc?.name?.toLowerCase() ?? ''
@@ -62,7 +62,8 @@ function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mo
     if (name === 'mounting' && mountingDetail)
       return { service_catalog_id: id, quantity: Number(mountingDetail.number_of_tyres) || 1, mountingDetail }
 
-    return { service_catalog_id: id, quantity: 1 }
+    const qty = Math.max(1, parseInt(serviceQuantities[id] ?? '1', 10) || 1)
+    return { service_catalog_id: id, quantity: qty }
   })
 }
 
@@ -76,15 +77,13 @@ function buildServiceLines(selectedServiceIds, balancingRows, tyreRepairRows, mo
  * @returns {Promise<void>}
  */
 export async function replayCreate(payload) {
-  const { form, selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog } = payload
+  const { form, selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities } = payload
 
-  // 1. Customer upsert
   let customer = await findCustomerByMobile(form.mobile)
   if (!customer) {
     customer = await createCustomer({ full_name: form.full_name, mobile: form.mobile })
   }
 
-  // 2. Vehicle upsert
   let vehicle = await findVehicleByPlate(form.plate_no)
   if (!vehicle) {
     vehicle = await createVehicle({
@@ -100,12 +99,8 @@ export async function replayCreate(payload) {
     })
   }
 
-  // 3. Assign a real job card number at sync time.
-  // Offline job cards are saved with a placeholder ('---') so we always
-  // fetch the next available number here to avoid unique constraint conflicts.
   const job_card_no = await fetchNextJobCardNo()
 
-  // 4. Create job card
   const jobCard = await createJobCard({
     job_card_no,
     customer_id: customer.id,
@@ -118,13 +113,8 @@ export async function replayCreate(payload) {
     notes: form.notes || null,
   })
 
-  // 5. Build and replace service lines
   const serviceLines = buildServiceLines(
-    selectedServiceIds,
-    balancingRows,
-    tyreRepairRows,
-    mountingDetail,
-    serviceCatalog,
+    selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities ?? {},
   )
   await replaceServiceLines(jobCard.id, serviceLines)
 }
@@ -140,17 +130,14 @@ export async function replayCreate(payload) {
  * @returns {Promise<void>}
  */
 export async function replayEdit(localId, payload) {
-  const { form, selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog } = payload
+  const { form, selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities } = payload
 
-  // Fetch the existing job card to get customer_id and vehicle_id
   const jc = await fetchJobCardById(localId)
 
-  // 1. Update customer
   if (jc.customers?.id) {
     await updateCustomer(jc.customers.id, { full_name: form.full_name, mobile: form.mobile })
   }
 
-  // 2. Update vehicle
   if (jc.vehicles?.id) {
     await updateVehicle(jc.vehicles.id, {
       plate_no: form.plate_no,
@@ -164,7 +151,6 @@ export async function replayEdit(localId, payload) {
     })
   }
 
-  // 3. Update job card
   await updateJobCard(localId, {
     job_card_no: form.job_card_no,
     job_date: form.job_date,
@@ -175,13 +161,8 @@ export async function replayEdit(localId, payload) {
     notes: form.notes || null,
   })
 
-  // 4. Build and replace service lines
   const serviceLines = buildServiceLines(
-    selectedServiceIds,
-    balancingRows,
-    tyreRepairRows,
-    mountingDetail,
-    serviceCatalog,
+    selectedServiceIds, balancingRows, tyreRepairRows, mountingDetail, serviceCatalog, serviceQuantities ?? {},
   )
   await replaceServiceLines(localId, serviceLines)
 }
