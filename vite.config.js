@@ -11,6 +11,9 @@ export default defineConfig({
       strategies: 'generateSW',
       manifest: false, // manifest is provided via public/manifest.webmanifest
       workbox: {
+        // Take control of all pages immediately on install/update
+        clientsClaim: true,
+        skipWaiting: true,
         // Precache all built app-shell assets so they're available offline immediately
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         // Navigate fallback ensures the SPA shell is served for all routes offline
