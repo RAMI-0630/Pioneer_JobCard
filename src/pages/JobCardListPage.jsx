@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { searchJobCards } from '../lib/queries'
 import { useAuth } from '../context/AuthContext'
+import { useOffline } from '../context/OfflineContext'
 import StatusBadge from '../components/ui/StatusBadge'
 import Spinner from '../components/ui/Spinner'
 import ErrorAlert from '../components/ui/ErrorAlert'
@@ -18,6 +19,8 @@ function todayStr() {
 export default function JobCardListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { isStaff } = useAuth()
+  const { pendingCount, isSyncing } = useOffline()
+  const prevSyncingRef = useRef(false)
 
   const [filters, setFilters] = useState({
     jobCardNo:    searchParams.get('jobCardNo')    || '',
@@ -64,6 +67,14 @@ export default function JobCardListPage() {
   }, [])
 
   useEffect(() => { runSearch(filters, page) }, [filters, page, runSearch])
+
+  // Re-fetch the list whenever a sync run completes (isSyncing flips false→true→false)
+  useEffect(() => {
+    if (prevSyncingRef.current === true && isSyncing === false && pendingCount === 0) {
+      runSearch(filters, page)
+    }
+    prevSyncingRef.current = isSyncing
+  }, [isSyncing, pendingCount])
 
   function set(field, value) {
     setFilters((prev) => ({ ...prev, [field]: value }))

@@ -28,8 +28,8 @@ export default function CreateJobCardPage() {
       setNextNo('---')
       return
     }
-    // Only fetch if we don't already have a number (don't re-fetch if connectivity toggles)
-    if (nextNo !== null) return
+    // Re-fetch whenever we come back online, even if we already have a placeholder
+    if (nextNo !== null && nextNo !== '---') return
     fetchNextJobCardNo().then(setNextNo).catch((e) => setLoadError(e.message))
   }, [isOnline])
 
@@ -70,8 +70,12 @@ export default function CreateJobCardPage() {
       })
     }
 
+    // Always fetch a fresh job card number — never trust the form value
+    // in case the page loaded while offline and kept the '---' placeholder
+    const job_card_no = await fetchNextJobCardNo()
+
     const jobCard = await createJobCard({
-      job_card_no: form.job_card_no,
+      job_card_no,
       customer_id: customer.id,
       vehicle_id: vehicle.id,
       job_date: form.job_date,
